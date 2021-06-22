@@ -1,173 +1,338 @@
 # Funzione `postfix`      
 # effettua la computazione di una stringa in RPN e ne ritorna il risultato
- 
+
+# ########## #
+#    DATA    #
+# ########## #
+
 .section .data
 
+# char operatori
+char_add:
+    .ascii "+"
+char_sub: 
+    .ascii "-"
+char_mul:
+    .ascii "*" 
+char_div: 
+    .ascii "/"
 
-invalid: 
+# char speciali
+char_spazio:
+    .ascii " "
+char_fine: 
+    .ascii "\0"
+
+# flags operazioni
+flag_add:
+    .byte 0x1
+flag_sub:
+    .byte 0x2
+flag_mul:
+    .byte 0x4
+flag_div:
+    .byte 0x8
+
+# offset cifre ascii
+offset_cifre_ascii:
+    .byte 0x30
+
+# invalid rpn
+string_invalid: 
     .ascii "Invalid\0"
 
-# Per ogni operazione creo un flag di riconoscimento
-o_som: 
-    .ascii "\0\0\0+"
-f_som:
-    .byte 0b00000001
+# ######## #
+#   CODE   #
+# ######## #
 
-o_sot: 
-    .ascii "\0\0\0-"
-f_sot:
-    .byte 0b00000010
+# `char pointer` punta al primo carattere (eax)
+# `accumulatore` = 0 (ebx)
+# `flag_operazione` = 0 (cl)
+# `cifra_carattere`(temp var) = 0 (edx)
 
-o_mol: 
-    .ascii "\0\0\0*"
-f_mol:
-    .byte 0b00000100
-
-o_div: 
-    .ascii "\0\0\0/"
-f_div:
-    .byte 0b0001000
-
-o_spa: 
-    .ascii "\0\0\0 "
-
-
-# Offset dei caratteri delle cifre nella codifica ascii
-ascii_offset_cifre: 
-    .long 0x0000001E
-
-# Entry del programma
 .section .text
     .global postfix
 
-# Funzione postfix
 postfix:
-    # puntatore a input
+
+    # ######## #
+    #  SETUP   #
+    # ######## #
+    xorl %ebx,%ebx
+    xorl %ecx,%ecx
+
+    # `char pointer` 
     movl 4(%esp),%eax
+
+    # delimitatore dello stack
+    pushl $0xFFFFFFFF
+
+    # primo numero
+    pushl $0x0
+
+    # ######## #
+    #  WHILE   #
+    # ######## #
+
+    # leggo un nuovo carattere
+    leggi_carattere:
+        # cleanup
+        xorl %edx,%edx
+        xorl %ebx,%ebx
     
-    movl $0,%ebx
+        mov (%eax),%dh
+        addl $1,%eax
+        
+        # controllo caso: operazione
+        
+        # controllo segno "+"
+        leal char_add,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_add
 
-    movl $0,%ecx
+        # controllo segno "-"
+        leal char_sub,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_sub
+        
+        # controllo segno "*"
+        leal char_mul,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_mul
+        
+        # controllo segno "/"
+        leal char_div,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_div
+        
+        # controllo caso: *`char pointer` == cifra
+        leal offset_cifre_ascii,%ebx
+        mov (%ebx),%dl
 
-    # flag operazione
-    movl $0,%edx
+        # %dh contiene il valore atoi del carattere (in complemento a 2)
+        sub %dl,%dh
+        # se l'operazione ritorna un valore negativo allora non è una cifra ascii
+        js set_invalid_rpn
 
-    # carica un nuovo valore dalla stringa di input
-    carica_valore:
-    movl $0,%ebx
-    movb (%eax),%bl
+        cmp $9,%dh
+        # se il numero è maggiore della cifra 9 allora non è una cifra ascii
+        jg set_invalid_rpn
 
-    # caso: spazio
-    # devo gestirlo per primo 
-    cmpl %ebx,o_spa
-    jz gestisci_spazio
+        # controllo caso: spazio oppure \0
+
+        # controllo carattere " "
+        leal char_spazio,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_spazio_fine
+
+        # controllo carattere "\0"
+        leal char_fine,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_spazio_fine
+
+    caso_cifra:
+
+        popl %ebx
+        imul $10,%ebx,%ebx
+        # controllo flag_sub che denota un numero negativo
+
+        cmp $0x2,%cl
+        jz cifra_positiva
+
+    cifra_negativa:
+        sub %dh,%al
+        pushl %ebx
+        jmp leggi_carattere
+       
+    cifra_positiva:
+        add %dh,%bl
+        pushl %ebx
+        jmp leggi_carattere
 
 
-    # caso: operazione
-    cmpl %ebx,o_som
 
-    cmpl %ebx,o_sot
+
+    # ########## #
+    #    FLAG    #
+    # ########## #
+
+    # set dei flag nel caso il carattere sia un segno
+    caso_add:
+        leal flag_add,%ecx
+        mov (%ecx),%cl
+        jmp leggi_carattere
+   
+    caso_sub:
+        leal flag_sub,%ecx
+        mov (%ecx),%cl
+        jmp leggi_carattere
     
-    cmpl %ebx,o_mol
-    
-    cmpl %ebx,o_div
-    
+    caso_mul:
+        leal flag_mul,%ecx
+        mov (%ecx),%cl
+        jmp leggi_carattere
+
+    caso_div:
+        leal flag_div,%ecx
+        mov (%ecx),%cl
+        jmp leggi_carattere
+
+    # ############ #
+    #  OPERAZIONI  #
+    # ############ #
+
+    caso_spazio_fine:
+        leal flag_add,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%cl
+        jz exec_add
+
+        leal flag_sub,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%cl
+        jz exec_sub
+        
+        leal flag_mul,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%cl
+        jz exec_mul
+
+        leal flag_div,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%cl
+        jz exec_div
+        
+
+        # controllo carattere "\0"
+        leal char_fine,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_spazio_fine
+
+        # controllo carattere " "
+        leal char_spazio,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        
+
+        
 
 
 
+    exec_add:
+        popl %ebx
+        popl %edx
+        addl %edx,%ebx
+        pushl %ebx
+        jmp leggi_carattere
+    exec_sub:
+        popl %ebx
+        popl %edx
+        subl %ebx,%edx
+        pushl %edx
+        jmp leggi_carattere
+    exec_mul:
+        popl %ebx
+        popl %edx
+        imull %ebx,%edx
+        pushl %ebx
+        jmp leggi_carattere
+
+    exec_div:
+        popl %ebx
+        popl %edx 
+        
+        # mi serve %eax per la divisione 
+        pushl %eax
+        
+        # setup per idiv
+        movl %edx,%eax
+        cdq
+
+        idiv %ebx
+
+        # restore di %eax e salvataggio del risultato
+        popl %ebx
+        pushl %eax
+        movl %ebx,%ebx
+
+        jmp leggi_carattere
+        
+    # ######## #
+    #   FINE   #
+    # ######## #
+
+    set_risultato:
+        # il risultato è in %edx
+        popl %edx
+        
+        # se trovo 0xFFFFFFFF vuol dire che ho non ho il risultato nello stack
+        cmpl $0xFFFFFFFF,%edx
+        jz set_invalid_rpn
+
+        # se non trovo 0xFFFFFFFF vuol dire che ho operandi ma non operazioni
+        popl %eax
+        cmpl $0xFFFFFFFF,%eax
+        jnz pulisci_stack
+
+        # puntatore alla stringa di output
+        movl 8(%esp),%ecx
+        
+        # setup per atoi 
+        movl %edx,%eax  
+        movl $0xA,%ebx
+        
+
+        # nel caso di numero negativo aggiungo il segno 
+        cmpl $0x0,%eax
+        jge atoi_loop
 
 
-    # caso: cifra
-    # cmpl %ebx,$0x0000000 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000001 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000002 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000003 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000004 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000005 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000006 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000007 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000008 + ascii_offset_cifre
-    # jz carica_cifra
-    # cmpl %ebx,$0x0000009 + ascii_offset_cifre
-    # jz carica_cifra
+        movb $45,(%ecx)
+        addl $1,%ecx
+        neg %eax
 
-    # caso: carattere invalido
-    jmp invalid_input
+    atoi_loop:
+        # convert eax (dword) in edx:eax (qword) 
+        cdq  
+        
+        idiv %ebx   
+              
+        add $48,%dl
+        mov %dl,(%ecx)
+        addl $1,%ecx
+
+        cmpl $0x0,%eax
+        jnz atoi_loop
+
+        # Aggiungo il carattere di fine stringa
+        movb $0,(%ecx)
+        jmp end
+        
+    pulisci_stack:
+        popl %edx
+        cmpl $0xFFFFFFFF,%edx
+        jnz pulisci_stack
+
+    set_invalid_rpn:
+        # sono allo stato iniziale dello stack
+        # puntatore alla stringa di output
+        movl 8(%esp),%eax
+        # scrivo la striga 
+        leal string_invalid,%ebx
+        movl (%ebx),%ecx
+        movl %ecx,(%eax)
+
+        movl 4(%ebx),%ecx
+        movl %ecx,4(%eax)
+
+    end:
+        ret
 
 
-    # ##########################################################
-    gestisci_spazio:
-    # salvo valore nello stack e carico un nuovo carattere
-    push %ecx
-    movl $0,%ecx
-    jmp carica_valore
-
-    
-    # imposta il flag di operazione somma
-    set_som:
-    leal f_som,%edx
-    movb (%edx),%dl
-    jmp carica_valore
-    # imposta il flag di operazione sottrazione
-    set_sot:
-    leal f_sot,%edx
-    movb (%edx),%dl
-    jmp carica_valore
-    # imposta il flag di operazione moltiplicazione
-    set_mol:
-    leal f_mol,%edx
-    movb (%edx),%dl
-    jmp carica_valore
-    # imposta il flag di operazione divisione
-    set_div:
-    leal f_div,%edx
-    movb (%edx),%dl
-    jmp carica_valore
-
-    # effettua l'operazione di somma
-    do_som:
-    jmp carica_valore
-    
-    # effettua l'operazione di sottrazione
-    do_sot:
-    jmp carica_valore
-    
-    # effettua l'operazione di moltiplicazione
-    do_mol:
-    jmp carica_valore
-    
-    # effettua l'operazione di divisione
-    do_div:
-    jmp carica_valore
-
-    # una cifra è stata riconosciuta e viene aggiunta ad %ecx
-    carica_cifra:   
-    jmp carica_valore
-
-    # scrive `Invalid` in output
-    invalid_input:
-    # puntatore a input
-    movl 4(%esp),%eax
-    # puntatore a output
-    movl 8(%esp),%ebx    
-
-    # calcolo indirizzo e scrittura in output
-    leal invalid,%edx
-    
-    movl (%edx),%ecx
-    movl %ecx,(%ebx)
-
-    movl 4(%edx),%ecx
-    movl %ecx,4(%ebx)
-
-    # ritorna alla funzione main
-    ret
-    
