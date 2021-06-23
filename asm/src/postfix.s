@@ -40,6 +40,10 @@ flag_fine:
 flag_fine_operazione:
     .byte 0x2
 
+flag_neg:
+    .byte 0x3
+
+
 # offset cifre ascii
 offset_cifre_ascii:
     .byte 0x30
@@ -68,14 +72,14 @@ postfix:
     xorl %ebx,%ebx
     xorl %ecx,%ecx
 
+    # flag_fine_operazione primo numero
+    mov $0x2,%ch
+
     # `char pointer` 
     movl 4(%esp),%eax
 
     # delimitatore dello stack
     pushl $0xFFFFFFFF
-
-    # primo numero
-    pushl $0x0
 
     # ######## #
     #  WHILE   #
@@ -144,39 +148,55 @@ postfix:
         # se il numero è maggiore della cifra 9 allora non è una cifra ascii
         jg pulisci_stack
 
-    caso_cifra:
-        cmp $0x2,%ch
-        jnz caso_accumulativo
-        
-        movl $0x0,%ebx
-        jmp continuo_caso_cifra
-        
-    caso_accumulativo:
-        popl %ebx
-
-        
-    continuo_caso_cifra:
-        imul $10,%ebx,%ebx
-
-        # setup registro %edx
+        # %edx contiene il valore della cifra 
         mov %dh,%dl
         mov $0,%dh
 
-        # controllo flag_sub che denota un numero negativo
-        cmp $0x2,%cl
-        jnz cifra_positiva
+        # se %ch è a flag_fine_operazione allora inizio un nuovo numero
+        cmp $0x2,%ch
+        jnz accumulo_cifra
 
-    cifra_negativa:
-        subl %edx,%ebx
+    prima_cifra:
+        movl $0,%ebx
+        # controllo flag_sub nel caso di prima cifra numero negativo   
+        cmp $0x2,%cl
+        jz prima_cifra_negativa
+    
+    prima_cifra_positiva:
+        mov $0,%ch
+        mov %dl,%bl
         pushl %ebx
-        mov $0x0,%ch
         jmp leggi_carattere
-       
-    cifra_positiva:
-        # mov $0x0,%cl 
+
+    prima_cifra_negativa:
+        mov $0x3,%ch
+        mov $0x0,%cl
+
+        mov %edx,%ebx
+        
+        neg %ebx 
+
+        pushl %ebx
+        jmp leggi_carattere
+
+    accumulo_cifra:
+        popl %ebx
+        imul $10,%ebx,%ebx
+
+        # controllo flag_neg nel caso di accumulo numero negativo   
+        cmp $0x3,%ch
+        jz accumulo_cifra_negativa
+
+    accumulo_cifra_positiva:
         addl %edx,%ebx
         pushl %ebx
-        mov $0x0,%ch
+        jmp leggi_carattere
+
+    accumulo_cifra_negativa:
+        mov $0x3,%ch
+
+        subl %edx,%ebx
+        pushl %ebx
         jmp leggi_carattere
 
     # ########## #
@@ -185,23 +205,22 @@ postfix:
 
     # set dei flag nel caso il carattere sia un segno
     caso_add:
-        leal flag_add,%ecx
-        mov (%ecx),%cl
+        leal flag_add,%edx
+        mov (%edx),%cl
         jmp leggi_carattere
-
     caso_sub:
-        leal flag_sub,%ecx
-        mov (%ecx),%cl
+        leal flag_sub,%edx
+        mov (%edx),%cl
         jmp leggi_carattere
     
     caso_mul:
-        leal flag_mul,%ecx
-        mov (%ecx),%cl
+        leal flag_mul,%edx
+        mov (%edx),%cl
         jmp leggi_carattere
 
     caso_div:
-        leal flag_div,%ecx
-        mov (%ecx),%cl
+        leal flag_div,%edx
+        mov (%edx),%cl
         jmp leggi_carattere
 
     # ############ #
@@ -210,9 +229,14 @@ postfix:
 
     caso_fine:
         mov $0x1,%ch
+        jmp inizio_operazioni
 
     # caso spazio o '\0'
     caso_spazio:
+        # set flag di fine operazione per l'aggiunta di un eventuale nuovo numero
+        mov $0x2,%ch
+        
+    inizio_operazioni: 
         leal flag_add,%ebx
         mov (%ebx),%dl
         cmp %dl,%cl
@@ -238,12 +262,10 @@ postfix:
     post_operazione:
         mov $0x0,%cl
 
-        # se in %cx ho tutti 1 vuol dire che ho finito
+        # se in %cx h1o  vuol dire che ho finito
         cmp $0x1,%ch
         jz set_risultato
 
-        # altrimenti imposto il flag di fine operazione
-        mov $0x2,%ch
         jmp leggi_carattere
 
 
@@ -307,20 +329,18 @@ postfix:
         jnz pulisci_stack
 
         # puntatore alla stringa di output
-        movl 8(%esp),%ecx
+        movl 8(%esp),%edi
         
         # setup per atoi 
+        xorl %ecx,%ecx
         movl %edx,%eax  
         movl $0xA,%ebx
         
-
         # nel caso di numero negativo aggiungo il segno 
-        cmpl $0x0,%eax
+        cmpl $0,%eax
         jge atoi_loop
 
-
-        movb $45,(%ecx)
-        addl $1,%ecx
+        movb $45,(%edi)
         neg %eax
 
     atoi_loop:
@@ -329,15 +349,24 @@ postfix:
         
         idiv %ebx   
               
+        # codifica in ascii della cifra
         add $48,%dl
-        mov %dl,(%ecx)
-        addl $1,%ecx
+        push %dx
+        inc %ecx
 
         cmpl $0x0,%eax
         jnz atoi_loop
+    
+    set_output:
+        
+        pop %dx
+        mov %dl,(%edi)
+        inc %edi
+        dec %ecx
+        jnz set_output
 
         # Aggiungo il carattere di fine stringa
-        movb $0,(%ecx)
+        movb $0,(%edi)
         jmp end
         
     pulisci_stack:
