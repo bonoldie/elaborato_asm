@@ -44,10 +44,6 @@ flag_neg:
     .byte 0x3
 
 
-# offset cifre ascii
-offset_cifre_ascii:
-    .byte 0x30
-
 # invalid rpn
 string_invalid: 
     .ascii "Invalid\0"
@@ -56,10 +52,7 @@ string_invalid:
 #   CODE   #
 # ######## #
 
-# `char pointer` punta al primo carattere (eax)
-# `accumulatore` = 0 (ebx)
 # `flag_operazione` = 0 (cl)
-# `cifra_carattere`(temp var) = 0 (edx)
 
 .section .text
     .global postfix
@@ -74,8 +67,7 @@ postfix:
 
     # flag_fine_operazione primo numero
     mov $0x2,%ch
-
-    # `char pointer` 
+ 
     movl 4(%esp),%eax
 
     # delimitatore dello stack
@@ -91,8 +83,9 @@ postfix:
         xorl %edx,%edx
         xorl %ebx,%ebx
     
+        # carico il carattere in %dh
         mov (%eax),%dh
-        addl $1,%eax
+        inc %eax
         
         # controllo caso: operazione
         
@@ -121,7 +114,7 @@ postfix:
         jz caso_div
         
 
-        # controllo caso: spazio oppure \0
+        # controllo caso: " " oppure "\0"
 
         # controllo carattere " "
         leal char_spazio,%ebx
@@ -135,9 +128,10 @@ postfix:
         cmp %dl,%dh
         jz caso_fine
 
-        # controllo caso: *`char pointer` == cifra
-        leal offset_cifre_ascii,%ebx
-        mov (%ebx),%dl
+        # controllo caso: cifra
+
+        # offset cifre codifica ascii
+        mov $0x30,%dl
 
         # %dh contiene il valore atoi del carattere (in complemento a 2)
         sub %dl,%dh
