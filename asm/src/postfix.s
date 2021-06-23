@@ -33,6 +33,13 @@ flag_mul:
 flag_div:
     .byte 0x8
 
+# flag fine
+flag_fine:
+    .byte 0x1
+
+flag_fine_operazione:
+    .byte 0x2
+
 # offset cifre ascii
 offset_cifre_ascii:
     .byte 0x30
@@ -109,6 +116,21 @@ postfix:
         cmp %dl,%dh
         jz caso_div
         
+
+        # controllo caso: spazio oppure \0
+
+        # controllo carattere " "
+        leal char_spazio,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_spazio
+
+        # controllo carattere "\0"
+        leal char_fine,%ebx
+        mov (%ebx),%dl
+        cmp %dl,%dh
+        jz caso_fine
+
         # controllo caso: *`char pointer` == cifra
         leal offset_cifre_ascii,%ebx
         mov (%ebx),%dl
@@ -122,42 +144,40 @@ postfix:
         # se il numero è maggiore della cifra 9 allora non è una cifra ascii
         jg pulisci_stack
 
-        # controllo caso: spazio oppure \0
-
-        # controllo carattere " "
-        leal char_spazio,%ebx
-        mov (%ebx),%dl
-        cmp %dl,%dh
-        jz caso_spazio_fine
-
-        # controllo carattere "\0"
-        leal char_fine,%ebx
-        mov (%ebx),%dl
-        cmp %dl,%dh
-        jz caso_spazio_fine
-
     caso_cifra:
-
+        cmp $0x2,%ch
+        jnz caso_accumulativo
+        
+        movl $0x0,%ebx
+        jmp continuo_caso_cifra
+        
+    caso_accumulativo:
         popl %ebx
+
+        
+    continuo_caso_cifra:
         imul $10,%ebx,%ebx
+
+        # setup registro %edx
+        mov %dh,%dl
+        mov $0,%dh
 
         # controllo flag_sub che denota un numero negativo
         cmp $0x2,%cl
-        jz cifra_positiva
+        jnz cifra_positiva
 
     cifra_negativa:
-        sub %dh,%al
+        subl %edx,%ebx
         pushl %ebx
+        mov $0x0,%ch
         jmp leggi_carattere
        
     cifra_positiva:
-        mov $0x0,%cl 
-        add %dh,%bl
+        # mov $0x0,%cl 
+        addl %edx,%ebx
         pushl %ebx
+        mov $0x0,%ch
         jmp leggi_carattere
-
-
-
 
     # ########## #
     #    FLAG    #
@@ -188,7 +208,11 @@ postfix:
     #  OPERAZIONI  #
     # ############ #
 
-    caso_spazio_fine:
+    caso_fine:
+        mov $0x1,%ch
+
+    # caso spazio o '\0'
+    caso_spazio:
         leal flag_add,%ebx
         mov (%ebx),%dl
         cmp %dl,%cl
@@ -209,6 +233,17 @@ postfix:
         cmp %dl,%cl
         jz exec_div
 
+
+    # dopo aver eseguito ogni operazione faccio un push
+    post_operazione:
+        mov $0x0,%cl
+
+        # se in %cx ho tutti 1 vuol dire che ho finito
+        cmp $0x1,%ch
+        jz set_risultato
+
+        # altrimenti imposto il flag di fine operazione
+        mov $0x2,%ch
         jmp leggi_carattere
 
 
@@ -217,19 +252,21 @@ postfix:
         popl %edx
         addl %edx,%ebx
         pushl %ebx
-        jmp leggi_carattere
+        jmp post_operazione
+    
     exec_sub:
         popl %ebx
         popl %edx
         subl %ebx,%edx
         pushl %edx
-        jmp leggi_carattere
+        jmp post_operazione
+
     exec_mul:
         popl %ebx
         popl %edx
         imull %ebx,%edx
-        pushl %ebx
-        jmp leggi_carattere
+        pushl %edx
+        jmp post_operazione
 
     exec_div:
         popl %ebx
@@ -247,9 +284,10 @@ postfix:
         # restore di %eax e salvataggio del risultato
         popl %ebx
         pushl %eax
-        movl %ebx,%ebx
+        movl %ebx,%eax
+        
+        jmp post_operazione
 
-        jmp leggi_carattere
         
     # ######## #
     #   FINE   #

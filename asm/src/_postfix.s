@@ -64,6 +64,13 @@ postfix:
     # `char pointer` 
     movl 4(%esp),%eax
 
+    
+    # ####### DEBUG ####### #
+    pushl $-4
+    pushl $2
+
+    jmp exec_mul
+
     # delimitatore dello stack
     pushl $0xFFFFFFFF
 
@@ -109,18 +116,6 @@ postfix:
         cmp %dl,%dh
         jz caso_div
         
-        # controllo caso: *`char pointer` == cifra
-        leal offset_cifre_ascii,%ebx
-        mov (%ebx),%dl
-
-        # %dh contiene il valore atoi del carattere (in complemento a 2)
-        sub %dl,%dh
-        # se l'operazione ritorna un valore negativo allora non è una cifra ascii
-        js set_invalid_rpn
-
-        cmp $9,%dh
-        # se il numero è maggiore della cifra 9 allora non è una cifra ascii
-        jg set_invalid_rpn
 
         # controllo caso: spazio oppure \0
 
@@ -136,27 +131,37 @@ postfix:
         cmp %dl,%dh
         jz caso_spazio_fine
 
-    caso_cifra:
+        # controllo caso: *`char pointer` == cifra
+        leal offset_cifre_ascii,%ebx
+        mov (%ebx),%dl
 
+        # %dh contiene il valore atoi del carattere (in complemento a 2)
+        sub %dl,%dh
+        # se l'operazione ritorna un valore negativo allora non è una cifra ascii
+        js pulisci_stack
+
+        cmp $9,%dh
+        # se il numero è maggiore della cifra 9 allora non è una cifra ascii
+        jg pulisci_stack
+
+    caso_cifra:
         popl %ebx
         imul $10,%ebx,%ebx
-        # controllo flag_sub che denota un numero negativo
 
+        # controllo flag_sub che denota un numero negativo
         cmp $0x2,%cl
-        jz cifra_positiva
+        jnz cifra_positiva
 
     cifra_negativa:
-        sub %dh,%al
+        sub %dh,%bl
         pushl %ebx
         jmp leggi_carattere
        
     cifra_positiva:
+        mov $0x0,%cl 
         add %dh,%bl
         pushl %ebx
         jmp leggi_carattere
-
-
-
 
     # ########## #
     #    FLAG    #
@@ -167,7 +172,7 @@ postfix:
         leal flag_add,%ecx
         mov (%ecx),%cl
         jmp leggi_carattere
-   
+
     caso_sub:
         leal flag_sub,%ecx
         mov (%ecx),%cl
@@ -207,22 +212,8 @@ postfix:
         mov (%ebx),%dl
         cmp %dl,%cl
         jz exec_div
-        
 
-        # controllo carattere "\0"
-        leal char_fine,%ebx
-        mov (%ebx),%dl
-        cmp %dl,%dh
-        jz caso_spazio_fine
-
-        # controllo carattere " "
-        leal char_spazio,%ebx
-        mov (%ebx),%dl
-        cmp %dl,%dh
-        
-
-        
-
+        jmp leggi_carattere
 
 
     exec_add:
@@ -230,18 +221,24 @@ postfix:
         popl %edx
         addl %edx,%ebx
         pushl %ebx
+        
+        pushl $0x0
         jmp leggi_carattere
     exec_sub:
         popl %ebx
         popl %edx
         subl %ebx,%edx
         pushl %edx
+        
+        pushl $0x0
         jmp leggi_carattere
     exec_mul:
         popl %ebx
         popl %edx
         imull %ebx,%edx
-        pushl %ebx
+        pushl %edx
+
+        pushl $0x0
         jmp leggi_carattere
 
     exec_div:
@@ -261,7 +258,8 @@ postfix:
         popl %ebx
         pushl %eax
         movl %ebx,%ebx
-
+        
+        pushl $0x0
         jmp leggi_carattere
         
     # ######## #
@@ -274,7 +272,7 @@ postfix:
         
         # se trovo 0xFFFFFFFF vuol dire che ho non ho il risultato nello stack
         cmpl $0xFFFFFFFF,%edx
-        jz set_invalid_rpn
+        jz pulisci_stack
 
         # se non trovo 0xFFFFFFFF vuol dire che ho operandi ma non operazioni
         popl %eax
