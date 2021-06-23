@@ -341,6 +341,7 @@ postfix:
         jge atoi_loop
 
         movb $45,(%edi)
+        inc %edi
         neg %eax
 
     atoi_loop:
