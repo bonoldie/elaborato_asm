@@ -74,8 +74,6 @@ postfix:
     # fine programma
     movl %esp,%esi
 
-    pushl $0xFFFFFFFF
-
     # ######## #
     #  WHILE   #
     # ######## #
